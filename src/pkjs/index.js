@@ -1,21 +1,37 @@
-// PebbleKit JS – receives session data from the watch and pushes a timeline pin
+var timelinejs = require('pebble-timeline-js');
 
 Pebble.addEventListener('ready', function () {
   console.log('PebbleKit JS ready');
 });
 
+
 Pebble.addEventListener('appmessage', function (e) {
-  console.log('Received session from watch');
+  console.log('Received message from watch');
 
   var startTime = e.payload.SessionStartTime;
-  var endTime   = e.payload.SessionEndTime;
-  var steps     = e.payload.SessionSteps;
-  var elapsed   = e.payload.SessionElapsed;
+  var deletePin = e.payload.DeletePinStartTime;
 
-  if (startTime) {
+  if (deletePin) {
+    deleteTimelinePin(deletePin);
+  } else if (startTime) {
+    var endTime   = e.payload.SessionEndTime;
+    var steps     = e.payload.SessionSteps;
+    var elapsed   = e.payload.SessionElapsed;
     insertTimelinePin(startTime, endTime, steps, elapsed);
   }
 });
+
+function deleteTimelinePin(startTime) {
+  var pinId = 'walk-log-' + startTime;
+
+  console.log('deleting timeline pin with id: ' + pinId);
+
+  timelinejs.deleteUserPin({
+    id: pinId
+  }, function(responseText) {
+    console.log('Timeline pin delete response: ' + responseText);
+  });
+}
 
 function insertTimelinePin(startTime, endTime, steps, elapsed) {
   var mins = Math.floor(elapsed / 60);
@@ -35,23 +51,7 @@ function insertTimelinePin(startTime, endTime, steps, elapsed) {
     }
   };
 
-  Pebble.getTimelineToken(
-    function (token) {
-      var url = 'https://timeline-api.getpebble.com/v1/user/pins/' + pin.id;
-      var xhr = new XMLHttpRequest();
-      xhr.open('PUT', url, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.setRequestHeader('X-User-Token', token);
-      xhr.onload = function () {
-        console.log('Timeline pin response: ' + xhr.status);
-      };
-      xhr.onerror = function () {
-        console.log('Timeline pin request failed');
-      };
-      xhr.send(JSON.stringify(pin));
-    },
-    function (error) {
-      console.log('Error getting timeline token: ' + error);
-    }
-  );
+  timelinejs.insertUserPin(pin, function(responseText) {
+    console.log('Result: ' + responseText);
+  });
 }

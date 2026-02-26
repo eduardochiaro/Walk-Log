@@ -103,7 +103,9 @@ static void app_glance_reload_cb(AppGlanceReloadSession *session,
 
 #endif  // !PBL_PLATFORM_APLITE
 
+#if !defined(PBL_PLATFORM_APLITE)
 static char s_glance_buf[32];
+#endif
 
 static void update_app_glance(void) {
 #if !defined(PBL_PLATFORM_APLITE)
@@ -393,7 +395,7 @@ s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
   text_layer_set_text_alignment(s_steps_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_steps_layer, GColorClear);
 #ifdef PBL_COLOR
-  text_layer_set_text_color(s_steps_layer, GColorVividCerulean);
+  text_layer_set_text_color(s_steps_layer, GColorMidnightGreen);
 #endif
   layer_add_child(root, text_layer_get_layer(s_steps_layer));
 

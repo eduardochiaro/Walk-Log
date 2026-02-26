@@ -30,6 +30,15 @@ static int display_to_storage(int display_idx) {
 // Forward declarations
 static void refresh_list(void);
 
+// Helper: send delete-pin message to JS
+static void send_delete_pin(time_t start_time) {
+  DictionaryIterator *iter;
+  AppMessageResult res = app_message_outbox_begin(&iter);
+  if (res != APP_MSG_OK) return;
+  dict_write_int32(iter, MESSAGE_KEY_DeletePinStartTime, (int32_t)start_time);
+  app_message_outbox_send();
+}
+
 // ===========================================================================
 //  Confirm dialog  (ActionBar style, like the screenshot)
 // ===========================================================================
@@ -140,6 +149,13 @@ static char s_det_steps_buf[32];
 static void detail_delete_confirmed(void *context) {
   int display_idx = s_detail_index;
   int storage_idx = display_to_storage(display_idx);
+
+  // Delete timeline pin before removing session
+  Session session;
+  if (session_load(storage_idx, &session)) {
+    send_delete_pin(session.start_time);
+  }
+
   session_delete(storage_idx);
 
   // Pop detail window back to list
@@ -309,6 +325,13 @@ static int s_pending_delete_display_idx;
 
 static void list_delete_confirmed(void *context) {
   int storage_idx = display_to_storage(s_pending_delete_display_idx);
+
+  // Delete timeline pin before removing session
+  Session session;
+  if (session_load(storage_idx, &session)) {
+    send_delete_pin(session.start_time);
+  }
+
   session_delete(storage_idx);
   refresh_list();
 }
