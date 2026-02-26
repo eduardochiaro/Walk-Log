@@ -1,0 +1,27 @@
+# Build artifacts
+build/
+dist/
+*.pbw
+.lock-waf_darwin_build
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.envrc

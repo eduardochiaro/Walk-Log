@@ -1,0 +1,64 @@
+{
+  "name": "walk-log",
+  "author": "Eduardo Chiaro",
+  "version": "1.0.0",
+  "keywords": ["pebble-app", "health", "steps", "logs", "walking", "walk", "dog"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Walk Log",
+    "uuid": "c013951f-72e4-453a-be4f-1fbee9014b0f",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "SessionStartTime",
+      "SessionEndTime",
+      "SessionSteps",
+      "SessionElapsed"
+    ],
+    "capabilities": [
+      "health"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "ICON_CHECK",
+          "file": "images/icon_check.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_SETTINGS_WHITE",
+          "file": "images/icon_settings_white.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_PLAY_WHITE",
+          "file": "images/icon_play_white.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_STOP_WHITE",
+          "file": "images/icon_stop_white.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "ICON_LOGS_WHITE",
+          "file": "images/icon_logs_white.png"
+        }
+      ]
+    }
+  }
+}
