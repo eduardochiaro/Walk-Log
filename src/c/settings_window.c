@@ -10,7 +10,7 @@ static Settings *s_settings_ref;
 
 // ---- Timeout option cycling ----
 
-static const int32_t s_timeout_options[] = { 1, 5, 10, 20, 30 };
+static const int32_t s_timeout_options[] = { 0, 5, 10, 20, 30 };
 #define NUM_TIMEOUT_OPTIONS 5
 
 static void cycle_timeout(void) {
@@ -34,6 +34,9 @@ static const char *get_subtitle(int row) {
     case 0:
       return s_settings_ref->save_in_timeline ? "Save Sessions" : "Don't Save";
     case 1:
+      if (s_settings_ref->inactivity_timeout_minutes <= 0) {
+        return "Off";
+      }
       snprintf(s_timeout_buf, sizeof(s_timeout_buf), "%ld min",
                (long)s_settings_ref->inactivity_timeout_minutes);
       return s_timeout_buf;
@@ -120,8 +123,8 @@ static void window_unload(Window *window) {
   status_bar_layer_destroy(s_status_bar);
   menu_layer_destroy(s_menu_layer);
   s_menu_layer = NULL;
-  window_destroy(s_window);
   s_window = NULL;
+  window_destroy(window);
 }
 
 void settings_window_push(Settings *settings) {

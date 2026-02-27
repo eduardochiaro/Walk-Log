@@ -9,10 +9,13 @@
 #define PERSIST_KEY_ACTIVE_TRACKING  2
 #define PERSIST_KEY_WORKER_EXPIRED   3
 #define PERSIST_KEY_EXPIRED_SESSION  4
+#define PERSIST_KEY_DATA_VERSION     5
 #define PERSIST_KEY_SESSION_BASE     10
 
 #define MAX_SESSIONS                 50
 #define WORKER_MSG_EXPIRED           0
+#define WALK_PACE_THRESHOLD          30  // steps/minute
+#define CURRENT_DATA_VERSION         2
 
 typedef struct {
   time_t  start_time;
@@ -30,32 +33,30 @@ typedef struct {
   bool     is_tracking;
   time_t   start_time;
   int32_t  steps_at_start;
-  time_t   last_step_change_time;
   int32_t  last_checked_steps;
+  int32_t  slow_minutes;
 } ActiveTracking;
 
 // ============================================================================
 //  State
 // ============================================================================
 
-static int32_t s_last_checked_steps    = 0;
-static time_t  s_last_step_change_time = 0;
-static int32_t s_timeout_minutes       = 10;
-static time_t  s_start_time            = 0;
-static int32_t s_steps_at_start        = 0;
-static bool    s_monitoring            = false;
+static int32_t s_last_checked_steps = 0;
+static int32_t s_slow_minutes       = 0;
+static int32_t s_timeout_minutes    = 10;
+static time_t  s_start_time         = 0;
+static int32_t s_steps_at_start     = 0;
+static bool    s_monitoring         = false;
 
 // ============================================================================
 //  Helpers
 // ============================================================================
 
-static int32_t get_step_count(void) {
-#if defined(PBL_HEALTH)
-  return (int32_t)health_service_sum_today(HealthMetricStepCount);
-#else
-  return 0;
-#endif
-}
+// NOTE: Health API (health_service_sum_today) is NOT available in the
+// background-worker runtime.  Calling it crashes the firmware into recovery
+// mode.  The worker therefore relies purely on elapsed time: every minute
+// without the foreground app resetting slow_minutes counts as a slow minute.
+// When slow_minutes >= timeout, the session is expired.
 
 static void save_session(const Session *session) {
   int count = 0;
@@ -80,20 +81,36 @@ static void save_session(const Session *session) {
 }
 
 // ============================================================================
+//  Persist tracking state (so app fallback and worker restart work)
+// ============================================================================
+
+static void persist_tracking_state(void) {
+  ActiveTracking at = {
+    .is_tracking        = true,
+    .start_time         = s_start_time,
+    .steps_at_start     = s_steps_at_start,
+    .last_checked_steps = s_last_checked_steps,
+    .slow_minutes       = s_slow_minutes,
+  };
+  persist_write_data(PERSIST_KEY_ACTIVE_TRACKING, &at, sizeof(ActiveTracking));
+}
+
+// ============================================================================
 //  Expiry logic
 // ============================================================================
 
 static void expire_session(void) {
   time_t now = time(NULL);
-  int32_t current_steps = get_step_count();
 
   Session session = {
     .start_time      = s_start_time,
     .end_time        = now,
-    .steps           = current_steps - s_steps_at_start,
+    .steps           = 0,   // worker can't read health; app fills in steps
     .elapsed_seconds = (int32_t)(now - s_start_time),
   };
-  if (session.steps < 0) session.steps = 0;
+
+  APP_LOG(APP_LOG_LEVEL_INFO, "Worker: expiring session after %ld sec",
+          (long)session.elapsed_seconds);
 
   // Save session to log
   save_session(&session);
@@ -116,33 +133,28 @@ static void expire_session(void) {
 }
 
 // ============================================================================
-//  Tick handler (fires every minute)
+//  Tick handler (fires every minute) — pace-based inactivity
 // ============================================================================
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (!s_monitoring) return;
 
-  int32_t current = get_step_count();
-  time_t  now     = time(NULL);
+  // Worker counts every minute as a "slow" minute since it cannot read
+  // the Health API.  The foreground app resets slow_minutes when it detects
+  // active walking.  If the app is closed, the worker eventually expires
+  // the session after inactivity_timeout_minutes.
+  s_slow_minutes++;
 
-  if (current > s_last_checked_steps) {
-    s_last_checked_steps    = current;
-    s_last_step_change_time = now;
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Worker tick: slow=%ld/%ld",
+          (long)s_slow_minutes, (long)s_timeout_minutes);
 
-    // Update persist so app fallback check has fresh data
-    ActiveTracking at;
-    if (persist_exists(PERSIST_KEY_ACTIVE_TRACKING)) {
-      persist_read_data(PERSIST_KEY_ACTIVE_TRACKING, &at, sizeof(ActiveTracking));
-      at.last_step_change_time = now;
-      at.last_checked_steps    = current;
-      persist_write_data(PERSIST_KEY_ACTIVE_TRACKING, &at, sizeof(ActiveTracking));
-    }
-  }
-
-  int elapsed_inactive = (int)(now - s_last_step_change_time);
-  if (elapsed_inactive >= s_timeout_minutes * 60) {
+  if (s_slow_minutes >= s_timeout_minutes) {
     expire_session();
+    return;
   }
+
+  // Persist state every tick so app fallback stays current
+  persist_tracking_state();
 }
 
 // ============================================================================
@@ -150,12 +162,32 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 // ============================================================================
 
 static void start_monitoring(void) {
-  // Read active tracking state
-  if (!persist_exists(PERSIST_KEY_ACTIVE_TRACKING)) return;
+  if (!persist_exists(PERSIST_KEY_ACTIVE_TRACKING)) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "Worker: no active tracking state found");
+    return;
+  }
+
+  // Validate data version
+  if (!persist_exists(PERSIST_KEY_DATA_VERSION) ||
+      persist_read_int(PERSIST_KEY_DATA_VERSION) != CURRENT_DATA_VERSION) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "Worker: data version mismatch, aborting");
+    persist_delete(PERSIST_KEY_ACTIVE_TRACKING);
+    return;
+  }
 
   ActiveTracking at;
-  persist_read_data(PERSIST_KEY_ACTIVE_TRACKING, &at, sizeof(ActiveTracking));
-  if (!at.is_tracking) return;
+  memset(&at, 0, sizeof(at));
+  int bytes = persist_read_data(PERSIST_KEY_ACTIVE_TRACKING, &at, sizeof(ActiveTracking));
+  if (bytes != (int)sizeof(ActiveTracking)) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "Worker: ActiveTracking size mismatch (%d vs %d)",
+            bytes, (int)sizeof(ActiveTracking));
+    persist_delete(PERSIST_KEY_ACTIVE_TRACKING);
+    return;
+  }
+  if (!at.is_tracking || at.start_time <= 0) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "Worker: tracking flag is false or bad start_time, not monitoring");
+    return;
+  }
 
   // Read settings
   Settings settings = { .save_in_timeline = true, .inactivity_timeout_minutes = 10 };
@@ -166,24 +198,34 @@ static void start_monitoring(void) {
     }
   }
 
-  s_start_time            = at.start_time;
-  s_steps_at_start        = at.steps_at_start;
-  s_timeout_minutes       = settings.inactivity_timeout_minutes;
-  s_last_checked_steps    = at.last_checked_steps > 0
-                              ? at.last_checked_steps : get_step_count();
-  s_last_step_change_time = at.last_step_change_time > 0
-                              ? at.last_step_change_time : time(NULL);
-  s_monitoring            = true;
+  s_start_time         = at.start_time;
+  s_steps_at_start     = at.steps_at_start;
+  s_timeout_minutes    = settings.inactivity_timeout_minutes;
+  s_last_checked_steps = 0;   // not used by worker anymore
+  s_slow_minutes       = (at.slow_minutes >= 0 && at.slow_minutes < 1440)
+                           ? at.slow_minutes : 0;
+  s_monitoring         = true;
+
+  APP_LOG(APP_LOG_LEVEL_INFO,
+          "Worker: started monitoring, timeout=%ld min, steps=%ld, slow=%ld",
+          (long)s_timeout_minutes, (long)s_last_checked_steps, (long)s_slow_minutes);
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 }
 
 static void init(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Worker: init");
   start_monitoring();
 }
 
 static void deinit(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Worker: deinit, monitoring=%d", s_monitoring);
   if (s_monitoring) {
+    // Do NOT call persist_tracking_state() here.  When the foreground app
+    // kills the worker via app_worker_kill(), the worker deinit would
+    // re-write is_tracking=true AFTER the app already cleared it, causing
+    // the session to appear still running on next launch.
+    // The tick handler already persists every minute, so state is fresh.
     tick_timer_service_unsubscribe();
   }
 }

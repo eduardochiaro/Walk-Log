@@ -56,12 +56,12 @@ static void           *s_confirm_ctx;
 static char            s_confirm_msg[32];
 
 static void confirm_select(ClickRecognizerRef ref, void *ctx) {
-  window_stack_remove(s_confirm_window, true);
+  window_stack_remove(s_confirm_window, false);
   if (s_confirm_cb) s_confirm_cb(s_confirm_ctx);
 }
 
 static void confirm_back(ClickRecognizerRef ref, void *ctx) {
-  window_stack_remove(s_confirm_window, true);
+  window_stack_remove(s_confirm_window, false);
 }
 
 static void confirm_click_config(void *ctx) {
@@ -80,8 +80,10 @@ static void confirm_load(Window *window) {
   s_confirm_action_bar = action_bar_layer_create();
   action_bar_layer_set_click_config_provider(s_confirm_action_bar,
                                               confirm_click_config);
-  action_bar_layer_set_icon(s_confirm_action_bar, BUTTON_ID_SELECT,
-                            s_confirm_check_icon);
+  if (s_confirm_check_icon) {
+    action_bar_layer_set_icon(s_confirm_action_bar, BUTTON_ID_SELECT,
+                              s_confirm_check_icon);
+  }
   action_bar_layer_add_to_window(s_confirm_action_bar, window);
 
   int cw = bounds.size.w - ACTION_BAR_WIDTH;
@@ -112,8 +114,8 @@ static void confirm_unload(Window *window) {
   text_layer_destroy(s_confirm_text_layer);
   action_bar_layer_destroy(s_confirm_action_bar);
   gbitmap_destroy(s_confirm_check_icon);
-  window_destroy(s_confirm_window);
   s_confirm_window = NULL;
+  window_destroy(window);
 }
 
 static void show_confirm(const char *message, ConfirmCallback cb, void *ctx) {
@@ -159,7 +161,7 @@ static void detail_delete_confirmed(void *context) {
   session_delete(storage_idx);
 
   // Pop detail window back to list
-  if (s_detail_window) window_stack_remove(s_detail_window, true);
+  if (s_detail_window) window_stack_remove(s_detail_window, false);
 }
 
 static void detail_select_long(ClickRecognizerRef ref, void *ctx) {
@@ -244,8 +246,8 @@ static void detail_unload(Window *window) {
   text_layer_destroy(s_detail_end);
   text_layer_destroy(s_detail_elapsed);
   text_layer_destroy(s_detail_steps);
-  window_destroy(s_detail_window);
   s_detail_window = NULL;
+  window_destroy(window);
 }
 
 static void push_detail(int display_index) {
@@ -393,8 +395,8 @@ static void list_unload(Window *window) {
   status_bar_layer_destroy(s_list_status_bar);
   menu_layer_destroy(s_list_menu);
   s_list_menu = NULL;
-  window_destroy(s_list_window);
   s_list_window = NULL;
+  window_destroy(window);
 }
 
 void logs_window_push(void) {

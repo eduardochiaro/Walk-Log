@@ -43,6 +43,7 @@ static Settings s_settings;
 // ---- forward declarations ----
 static void stop_tracking(bool expired);
 static void update_app_glance(void);
+static void deferred_expire_cb(void *data);
 
 // ============================================================================
 //  Health helper
@@ -147,6 +148,23 @@ static void tick_callback(void *data) {
   s_elapsed_seconds++;
   update_time_display();
   update_steps_display();
+
+  // Every 60 seconds, update the persisted slow_minutes counter so the
+  // background worker knows the user is still actively walking.
+  if (s_elapsed_seconds % 60 == 0) {
+    ActiveTracking at;
+    if (active_tracking_load(&at)) {
+      int32_t current_steps = get_step_count();
+      int32_t delta = current_steps - at.last_checked_steps;
+      if (delta < 0) delta = 0;
+      if (delta >= WALK_PACE_THRESHOLD) {
+        at.slow_minutes = 0;  // still walking — reset
+      }
+      at.last_checked_steps = current_steps;
+      active_tracking_save(&at);
+    }
+  }
+
   s_tick_timer = app_timer_register(1000, tick_callback, NULL);
 }
 
@@ -163,7 +181,7 @@ static void stop_tick_timer(void) {
 // ============================================================================
 
 static void alert_dismiss(void *data) {
-  if (s_alert_window) window_stack_remove(s_alert_window, true);
+  if (s_alert_window) window_stack_remove(s_alert_window, false);
 }
 
 static void alert_load(Window *window) {
@@ -175,11 +193,11 @@ static void alert_load(Window *window) {
 #endif
 
   s_alert_text = text_layer_create(
-      GRect(10, bounds.size.h / 2 - 42, bounds.size.w - 20, 84));
+      GRect(10, 30, bounds.size.w - 20, bounds.size.h - 40));
   {
     static char alert_msg[64];
     snprintf(alert_msg, sizeof(alert_msg),
-             "Session Expired\n\nNo activity for\n%ld minutes",
+             "Session Expired\n\nNo activity\nfor %ld min.",
              (long)s_settings.inactivity_timeout_minutes);
     text_layer_set_text(s_alert_text, alert_msg);
   }
@@ -196,19 +214,29 @@ static void alert_load(Window *window) {
 }
 
 static void alert_unload(Window *window) {
-  text_layer_destroy(s_alert_text);
-  window_destroy(s_alert_window);
+  if (s_alert_text) text_layer_destroy(s_alert_text);
+  s_alert_text = NULL;
   s_alert_window = NULL;
+  window_destroy(window);
 }
 
 static void show_expire_alert(void) {
-  vibes_long_pulse();
   s_alert_window = window_create();
+  if (!s_alert_window) return;
   window_set_window_handlers(s_alert_window, (WindowHandlers) {
     .load   = alert_load,
     .unload = alert_unload,
   });
   window_stack_push(s_alert_window, true);
+  vibes_long_pulse();
+}
+
+// ============================================================================
+//  Deferred expire callback (runs AFTER window_load finishes)
+// ============================================================================
+
+static void deferred_expire_cb(void *data) {
+  stop_tracking(true);
 }
 
 // ============================================================================
@@ -226,18 +254,23 @@ static void start_tracking(void) {
     .is_tracking           = true,
     .start_time            = s_start_time,
     .steps_at_start        = s_steps_at_start,
-    .last_step_change_time = s_start_time,
     .last_checked_steps    = s_steps_at_start,
+    .slow_minutes          = 0,
   };
   active_tracking_save(&at);
-  app_worker_launch();
+
+  // Only launch background worker if inactivity timeout is enabled
+  if (s_settings.inactivity_timeout_minutes > 0) {
+    AppWorkerResult wr = app_worker_launch();
+    APP_LOG(APP_LOG_LEVEL_INFO, "Worker launch result: %d", (int)wr);
+  }
 
   text_layer_set_text(s_status_layer, "Tracking");
 #ifdef PBL_COLOR
   text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
 #endif
 
-  action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
+  if (s_icon_stop) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
 
   update_time_display();
   update_steps_display();
@@ -250,15 +283,22 @@ static void stop_tracking(bool expired) {
   s_tracking = false;
   stop_tick_timer();
 
-  // Kill background worker
-  app_worker_kill();
+  // Kill background worker (only if running)
+  if (app_worker_is_running()) {
+    app_worker_kill();
+  }
 
   if (expired) {
     // Worker (or fallback check) already saved the session.
-    // Read it back for timeline push.
+    // Read it back for timeline push.  Fill in step count since the
+    // worker can't access the Health API.
     if (persist_exists(PERSIST_KEY_EXPIRED_SESSION)) {
       Session es;
       persist_read_data(PERSIST_KEY_EXPIRED_SESSION, &es, sizeof(Session));
+      if (es.steps == 0 && s_steps_at_start > 0) {
+        es.steps = get_step_count() - s_steps_at_start;
+        if (es.steps < 0) es.steps = 0;
+      }
       send_to_timeline(&es);
       persist_delete(PERSIST_KEY_EXPIRED_SESSION);
     }
@@ -281,7 +321,7 @@ static void stop_tracking(bool expired) {
 #ifdef PBL_COLOR
   text_layer_set_text_color(s_status_layer, GColorDarkGray);
 #endif
-  action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
+  if (s_icon_play) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
   s_elapsed_seconds = 0;
   update_time_display();
   text_layer_set_text(s_steps_layer, "");
@@ -324,6 +364,7 @@ static void main_click_config(void *ctx) {
 // ============================================================================
 
 static void main_window_load(Window *window) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "main_window_load: start");
   Layer *root  = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   // set background color
@@ -331,10 +372,14 @@ static void main_window_load(Window *window) {
 
   // ---- Icons ----
 
-s_icon_settings = gbitmap_create_with_resource(RESOURCE_ID_ICON_SETTINGS_WHITE);
-s_icon_play     = gbitmap_create_with_resource(RESOURCE_ID_ICON_PLAY_WHITE);
-s_icon_stop     = gbitmap_create_with_resource(RESOURCE_ID_ICON_STOP_WHITE);
-s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
+  s_icon_settings = gbitmap_create_with_resource(RESOURCE_ID_ICON_SETTINGS_WHITE);
+  s_icon_play     = gbitmap_create_with_resource(RESOURCE_ID_ICON_PLAY_WHITE);
+  s_icon_stop     = gbitmap_create_with_resource(RESOURCE_ID_ICON_STOP_WHITE);
+  s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
+
+  if (!s_icon_settings || !s_icon_play || !s_icon_stop || !s_icon_logs) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Failed to load one or more icons!");
+  }
 
   // ---- Action bar (sidebar) ----
   s_action_bar = action_bar_layer_create();
@@ -342,9 +387,9 @@ s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
 #ifdef PBL_COLOR
   action_bar_layer_set_background_color(s_action_bar, GColorBlack);
 #endif
-  action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP,     s_icon_settings);
-  action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
-  action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN,   s_icon_logs);
+  if (s_icon_settings) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP,     s_icon_settings);
+  if (s_icon_play)     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
+  if (s_icon_logs)     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN,   s_icon_logs);
   action_bar_layer_add_to_window(s_action_bar, window);
 
   // Content area width (screen minus action bar)
@@ -401,19 +446,21 @@ s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
 
   // ---- Resume tracking state if we were tracking before app closed ----
   if (s_expired_while_closed) {
-    // Session expired while app was closed – finalize it now
+    // Session expired while app was closed – defer finalization to after
+    // window_load returns, because stop_tracking pushes another window.
     s_expired_while_closed = false;
-    stop_tracking(true);
+    app_timer_register(200, deferred_expire_cb, NULL);
   } else if (s_tracking) {
     text_layer_set_text(s_status_layer, "TRACKING");
 #ifdef PBL_COLOR
     text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
 #endif
-    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
+    if (s_icon_stop) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
     update_time_display();
     update_steps_display();
     start_tick_timer();
   }
+  APP_LOG(APP_LOG_LEVEL_INFO, "main_window_load: done");
 }
 
 static void main_window_unload(Window *window) {
@@ -456,7 +503,10 @@ static void worker_message_handler(uint16_t type, AppWorkerMessage *msg) {
 // ============================================================================
 
 static void init(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "init: start");
   settings_load(&s_settings);
+  APP_LOG(APP_LOG_LEVEL_INFO, "init: settings loaded, timeout=%ld",
+          (long)s_settings.inactivity_timeout_minutes);
 
   app_message_register_outbox_sent(outbox_sent);
   app_message_register_outbox_failed(outbox_failed);
@@ -464,6 +514,23 @@ static void init(void) {
 
   // Listen for messages from the background worker
   app_worker_message_subscribe(worker_message_handler);
+
+  // ---- Data-version migration: clear stale tracking on struct change ----
+  {
+    int32_t stored_version = 0;
+    if (persist_exists(PERSIST_KEY_DATA_VERSION)) {
+      stored_version = persist_read_int(PERSIST_KEY_DATA_VERSION);
+    }
+    if (stored_version != CURRENT_DATA_VERSION) {
+      APP_LOG(APP_LOG_LEVEL_WARNING,
+              "Data version mismatch (%ld vs %d), clearing stale tracking",
+              (long)stored_version, CURRENT_DATA_VERSION);
+      persist_delete(PERSIST_KEY_ACTIVE_TRACKING);
+      persist_delete(PERSIST_KEY_WORKER_EXPIRED);
+      persist_delete(PERSIST_KEY_EXPIRED_SESSION);
+      persist_write_int(PERSIST_KEY_DATA_VERSION, CURRENT_DATA_VERSION);
+    }
+  }
 
   // Check if the background worker expired the session while app was closed
   if (persist_exists(PERSIST_KEY_WORKER_EXPIRED)) {
@@ -476,50 +543,68 @@ static void init(void) {
       s_start_time      = at.start_time;
       s_steps_at_start  = at.steps_at_start;
       s_elapsed_seconds = (int)(time(NULL) - s_start_time);
+      if (s_elapsed_seconds < 0) s_elapsed_seconds = 0;
 
-      // Fallback: if worker was killed, check for expiry via persist
-      int32_t current_steps = get_step_count();
-      time_t  now           = time(NULL);
-      time_t  last_change   = at.last_step_change_time;
+      // Fallback: if worker was killed, check for expiry
+      if (!app_worker_is_running() && s_settings.inactivity_timeout_minutes > 0) {
+        time_t  now           = time(NULL);
+        int32_t current_steps = get_step_count();
+        int32_t minutes_total = (int32_t)((now - at.start_time) / 60);
 
-      if (current_steps > at.last_checked_steps) last_change = now;
-
-      int timeout_sec = s_settings.inactivity_timeout_minutes * 60;
-      if (last_change > 0 && (now - last_change) >= timeout_sec) {
-        // Session should have expired — save it now
-        Session session = {
-          .start_time      = at.start_time,
-          .end_time        = last_change + timeout_sec,
-          .steps           = current_steps - at.steps_at_start,
-          .elapsed_seconds = (int32_t)(last_change + timeout_sec - at.start_time),
-        };
-        if (session.steps < 0) session.steps = 0;
-        session_add(&session);
-        persist_write_data(PERSIST_KEY_EXPIRED_SESSION, &session, sizeof(Session));
-        active_tracking_clear();
-
-        s_tracking = true;
-        s_expired_while_closed = true;
-      } else {
-        s_tracking = true;
-        // Re-launch worker if it was killed
-        if (!app_worker_is_running()) {
-          ActiveTracking updated = at;
-          updated.last_checked_steps    = current_steps;
-          updated.last_step_change_time = last_change > 0 ? last_change : now;
-          active_tracking_save(&updated);
-          app_worker_launch();
+        // Use persisted slow_minutes plus a rough estimate for time since
+        // the worker last updated.
+        int32_t total_slow = at.slow_minutes;
+        if (minutes_total > 0 && at.last_checked_steps > 0) {
+          int32_t step_delta  = current_steps - at.last_checked_steps;
+          if (step_delta < 0) step_delta = 0;
+          int32_t mins_since  = minutes_total;  // rough upper bound
+          int32_t avg_pace    = (mins_since > 0) ? step_delta / mins_since : 0;
+          if (avg_pace < WALK_PACE_THRESHOLD) {
+            total_slow += mins_since;
+          }
         }
+
+        if (total_slow >= s_settings.inactivity_timeout_minutes) {
+          Session session = {
+            .start_time      = at.start_time,
+            .end_time        = now,
+            .steps           = current_steps - at.steps_at_start,
+            .elapsed_seconds = (int32_t)(now - at.start_time),
+          };
+          if (session.steps < 0) session.steps = 0;
+          session_add(&session);
+          persist_write_data(PERSIST_KEY_EXPIRED_SESSION, &session, sizeof(Session));
+          active_tracking_clear();
+
+          s_tracking = true;
+          s_expired_while_closed = true;
+        } else {
+          s_tracking = true;
+          // Re-launch worker (only if timeout enabled)
+          if (s_settings.inactivity_timeout_minutes > 0) {
+            ActiveTracking updated = at;
+            updated.last_checked_steps = current_steps;
+            active_tracking_save(&updated);
+            AppWorkerResult wr = app_worker_launch();
+            APP_LOG(APP_LOG_LEVEL_INFO, "Fallback worker launch: %d", (int)wr);
+          }
+        }
+      } else {
+        // Worker is still running, just resume UI
+        s_tracking = true;
       }
     }
   }
 
+  APP_LOG(APP_LOG_LEVEL_INFO, "init: creating main window, tracking=%d expired=%d",
+          s_tracking, s_expired_while_closed);
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load   = main_window_load,
     .unload = main_window_unload,
   });
   window_stack_push(s_main_window, true);
+  APP_LOG(APP_LOG_LEVEL_INFO, "init: done");
 }
 
 static void deinit(void) {

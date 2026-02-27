@@ -71,7 +71,7 @@ void settings_load(Settings *out) {
   if (persist_exists(PERSIST_KEY_SETTINGS)) {
     persist_read_data(PERSIST_KEY_SETTINGS, out, sizeof(Settings));
     // Guard against stale/zero value from older persisted data
-    if (out->inactivity_timeout_minutes <= 0) {
+    if (out->inactivity_timeout_minutes < 0) {
       out->inactivity_timeout_minutes = 10;
     }
   } else {
@@ -91,7 +91,24 @@ void active_tracking_save(const ActiveTracking *at) {
 
 bool active_tracking_load(ActiveTracking *out) {
   if (persist_exists(PERSIST_KEY_ACTIVE_TRACKING)) {
-    persist_read_data(PERSIST_KEY_ACTIVE_TRACKING, out, sizeof(ActiveTracking));
+    // Zero-init so any unread bytes are safe
+    memset(out, 0, sizeof(ActiveTracking));
+    int bytes = persist_read_data(PERSIST_KEY_ACTIVE_TRACKING, out, sizeof(ActiveTracking));
+    if (bytes != (int)sizeof(ActiveTracking)) {
+      // Size mismatch — struct layout changed since data was written
+      APP_LOG(APP_LOG_LEVEL_WARNING,
+              "ActiveTracking size mismatch: got %d, expected %d",
+              bytes, (int)sizeof(ActiveTracking));
+      persist_delete(PERSIST_KEY_ACTIVE_TRACKING);
+      memset(out, 0, sizeof(ActiveTracking));
+      return false;
+    }
+    // Sanity-check fields
+    if (out->start_time <= 0 || out->slow_minutes < 0) {
+      persist_delete(PERSIST_KEY_ACTIVE_TRACKING);
+      memset(out, 0, sizeof(ActiveTracking));
+      return false;
+    }
     return out->is_tracking;
   }
   return false;

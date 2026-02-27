@@ -7,7 +7,12 @@
 #define PERSIST_KEY_ACTIVE_TRACKING 2   // ActiveTracking struct
 #define PERSIST_KEY_WORKER_EXPIRED 3   // bool: worker expired a session
 #define PERSIST_KEY_EXPIRED_SESSION 4  // Session: expired session for timeline
+#define PERSIST_KEY_DATA_VERSION 5     // schema version tag
 #define PERSIST_KEY_SESSION_BASE 10
+
+// Bump this whenever ActiveTracking/Settings struct layouts change.
+// On mismatch the app clears stale tracking data to prevent crashes.
+#define CURRENT_DATA_VERSION 2
 
 // Worker ↔ App message types
 #define WORKER_MSG_EXPIRED 0
@@ -31,13 +36,16 @@ void session_add(const Session *session);
 void session_delete(int index);       // delete by storage index
 void session_clear_all(void);
 
+// Pace threshold: steps/minute below this = not walking (walking ~80-130, idle ~5-20)
+#define WALK_PACE_THRESHOLD 30
+
 // Active tracking state (survives app close)
 typedef struct {
   bool     is_tracking;
   time_t   start_time;
   int32_t  steps_at_start;
-  time_t   last_step_change_time;  // last time steps were seen to increase
-  int32_t  last_checked_steps;     // step count at last check
+  int32_t  last_checked_steps;     // step count at last minute check
+  int32_t  slow_minutes;           // consecutive minutes below walk pace
 } ActiveTracking;
 
 void active_tracking_save(const ActiveTracking *at);
