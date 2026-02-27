@@ -372,10 +372,10 @@ static void main_window_load(Window *window) {
 
   // ---- Icons ----
 
-  s_icon_settings = gbitmap_create_with_resource(RESOURCE_ID_ICON_SETTINGS_WHITE);
-  s_icon_play     = gbitmap_create_with_resource(RESOURCE_ID_ICON_PLAY_WHITE);
-  s_icon_stop     = gbitmap_create_with_resource(RESOURCE_ID_ICON_STOP_WHITE);
-  s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS_WHITE);
+  s_icon_settings = gbitmap_create_with_resource(RESOURCE_ID_ICON_SETTINGS);
+  s_icon_play     = gbitmap_create_with_resource(RESOURCE_ID_ICON_PLAY);
+  s_icon_stop     = gbitmap_create_with_resource(RESOURCE_ID_ICON_STOP);
+  s_icon_logs     = gbitmap_create_with_resource(RESOURCE_ID_ICON_LOGS);
 
   if (!s_icon_settings || !s_icon_play || !s_icon_stop || !s_icon_logs) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "Failed to load one or more icons!");

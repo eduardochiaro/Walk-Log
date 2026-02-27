@@ -57,23 +57,23 @@
         },
         {
           "type": "bitmap",
-          "name": "ICON_SETTINGS_WHITE",
-          "file": "icon_settings_white.png"
+          "name": "ICON_SETTINGS",
+          "file": "icon_settings.png"
         },
         {
           "type": "bitmap",
-          "name": "ICON_PLAY_WHITE",
-          "file": "icon_play_white.png"
+          "name": "ICON_PLAY",
+          "file": "icon_play.png"
         },
         {
           "type": "bitmap",
-          "name": "ICON_STOP_WHITE",
-          "file": "icon_stop_white.png"
+          "name": "ICON_STOP",
+          "file": "icon_stop.png"
         },
         {
           "type": "bitmap",
-          "name": "ICON_LOGS_WHITE",
-          "file": "icon_logs_white.png"
+          "name": "ICON_LOGS",
+          "file": "icon_logs.png"
         }
       ]
     }
