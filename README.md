@@ -7,7 +7,7 @@ Walk Log is a Pebble application that tracks the time and steps taken during you
 
 
 ## Screenshots
-### Pebble Classic/Steel
+### Pebble Time/Time Steel
 ![Basalt 1](assets/walk-log-basalt-1.png)
 ![Basalt 2](assets/walk-log-basalt-2.png)
 ![Basalt 3](assets/walk-log-basalt-3.png)
