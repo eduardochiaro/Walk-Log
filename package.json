@@ -33,11 +33,11 @@
       "watchface": false
     },
     "messageKeys": [
-      "SessionStartTime",
-      "SessionEndTime",
-      "SessionSteps",
-      "SessionElapsed",
-      "DeletePinStartTime"
+      "SESSION_START_TIME",
+      "SESSION_END_TIME",
+      "SESSION_STEPS",
+      "SESSION_ELAPSED",
+      "DELETE_PIN_START_TIME"
     ],
     "capabilities": [
       "health"

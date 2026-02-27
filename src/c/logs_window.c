@@ -35,7 +35,7 @@ static void send_delete_pin(time_t start_time) {
   DictionaryIterator *iter;
   AppMessageResult res = app_message_outbox_begin(&iter);
   if (res != APP_MSG_OK) return;
-  dict_write_int32(iter, MESSAGE_KEY_DeletePinStartTime, (int32_t)start_time);
+  dict_write_int32(iter, MESSAGE_KEY_DELETE_PIN_START_TIME, (int32_t)start_time);
   app_message_outbox_send();
 }
 
@@ -136,6 +136,7 @@ static void show_confirm(const char *message, ConfirmCallback cb, void *ctx) {
 
 static Window    *s_detail_window;
 static StatusBarLayer *s_detail_status_bar;
+static TextLayer *s_detail_date;
 static TextLayer *s_detail_start;
 static TextLayer *s_detail_end;
 static TextLayer *s_detail_elapsed;
@@ -143,6 +144,7 @@ static TextLayer *s_detail_steps;
 
 static int s_detail_index;
 
+static char s_det_date_buf[32];
 static char s_det_start_buf[32];
 static char s_det_end_buf[32];
 static char s_det_elapsed_buf[32];
@@ -176,13 +178,17 @@ static void detail_load(Window *window) {
   Layer *root  = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
   window_set_background_color(window, GColorYellow);
+  bool is_round = (bool) PBL_IF_ROUND_ELSE(true, false);
+  bool is_color = (bool) PBL_IF_COLOR_ELSE(true, false);
 
   Session session;
   load_by_display_index(s_detail_index, &session);
 
   // Format strings
+  
   struct tm *st = localtime(&session.start_time);
   strftime(s_det_start_buf, sizeof(s_det_start_buf), "Start: %H:%M:%S", st);
+  strftime(s_det_date_buf, sizeof(s_det_date_buf), "%b %d, %Y", st);
 
   struct tm *et = localtime(&session.end_time);
   strftime(s_det_end_buf, sizeof(s_det_end_buf), "End:    %H:%M:%S", et);
@@ -200,40 +206,64 @@ static void detail_load(Window *window) {
   layer_add_child(root, status_bar_layer_get_layer(s_detail_status_bar));
 
   int y = STATUS_BAR_LAYER_HEIGHT + 8;
-  int lh = 24;
+  int separator = 1;
+  int lh = 20;
+
+  // FULL Date`
+  s_detail_date = text_layer_create(GRect(8, y, bounds.size.w - 16, lh + 4));
+  text_layer_set_text(s_detail_date, s_det_date_buf);
+  text_layer_set_font(s_detail_date, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  if (is_round) {
+    text_layer_set_text_alignment(s_detail_date, GTextAlignmentCenter);
+  }
+  text_layer_set_background_color(s_detail_date, GColorClear);
+  layer_add_child(root, text_layer_get_layer(s_detail_date));
+  y += lh + separator + 12;
 
   // Start
   s_detail_start = text_layer_create(GRect(8, y, bounds.size.w - 16, lh));
   text_layer_set_text(s_detail_start, s_det_start_buf);
   text_layer_set_font(s_detail_start, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  if (is_round) {
+    text_layer_set_text_alignment(s_detail_start, GTextAlignmentCenter);
+  }
   text_layer_set_background_color(s_detail_start, GColorClear);
   layer_add_child(root, text_layer_get_layer(s_detail_start));
-  y += lh + 2;
+  y += lh + separator;
 
   // End
   s_detail_end = text_layer_create(GRect(8, y, bounds.size.w - 16, lh));
   text_layer_set_text(s_detail_end, s_det_end_buf);
   text_layer_set_font(s_detail_end, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  if (is_round) {
+    text_layer_set_text_alignment(s_detail_end, GTextAlignmentCenter);
+  }
   text_layer_set_background_color(s_detail_end, GColorClear);
   layer_add_child(root, text_layer_get_layer(s_detail_end));
-  y += lh + 2;
+  y += lh + separator;
 
   // Elapsed
   s_detail_elapsed = text_layer_create(GRect(8, y, bounds.size.w - 16, lh));
   text_layer_set_text(s_detail_elapsed, s_det_elapsed_buf);
   text_layer_set_font(s_detail_elapsed, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  if (is_round) {
+    text_layer_set_text_alignment(s_detail_elapsed, GTextAlignmentCenter);
+  }
   text_layer_set_background_color(s_detail_elapsed, GColorClear);
   layer_add_child(root, text_layer_get_layer(s_detail_elapsed));
-  y += lh + 2;
+  y += lh + separator;
 
   // Steps
   s_detail_steps = text_layer_create(GRect(8, y, bounds.size.w - 16, lh));
   text_layer_set_text(s_detail_steps, s_det_steps_buf);
   text_layer_set_font(s_detail_steps, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  if (is_round) {
+    text_layer_set_text_alignment(s_detail_steps, GTextAlignmentCenter);
+  }
   text_layer_set_background_color(s_detail_steps, GColorClear);
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_detail_steps, GColorBlue);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_detail_steps, GColorBlue);
+  }
   layer_add_child(root, text_layer_get_layer(s_detail_steps));
 
   // Hook long-press for delete
@@ -242,6 +272,7 @@ static void detail_load(Window *window) {
 
 static void detail_unload(Window *window) {
   status_bar_layer_destroy(s_detail_status_bar);
+  text_layer_destroy(s_detail_date);
   text_layer_destroy(s_detail_start);
   text_layer_destroy(s_detail_end);
   text_layer_destroy(s_detail_elapsed);

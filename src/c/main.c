@@ -40,6 +40,11 @@ static AppTimer *s_tick_timer          = NULL;
 // App-wide settings
 static Settings s_settings;
 
+// Utities
+bool is_color = false;
+bool is_large = false;
+bool is_round = false;
+
 // ---- forward declarations ----
 static void stop_tracking(bool expired);
 static void update_app_glance(void);
@@ -131,10 +136,10 @@ static void send_to_timeline(const Session *session) {
   AppMessageResult res = app_message_outbox_begin(&iter);
   if (res != APP_MSG_OK) return;
 
-  dict_write_int32(iter, MESSAGE_KEY_SessionStartTime, (int32_t)session->start_time);
-  dict_write_int32(iter, MESSAGE_KEY_SessionEndTime,   (int32_t)session->end_time);
-  dict_write_int32(iter, MESSAGE_KEY_SessionSteps,     session->steps);
-  dict_write_int32(iter, MESSAGE_KEY_SessionElapsed,   session->elapsed_seconds);
+  dict_write_int32(iter, MESSAGE_KEY_SESSION_START_TIME, (int32_t)session->start_time);
+  dict_write_int32(iter, MESSAGE_KEY_SESSION_END_TIME,   (int32_t)session->end_time);
+  dict_write_int32(iter, MESSAGE_KEY_SESSION_STEPS,     session->steps);
+  dict_write_int32(iter, MESSAGE_KEY_SESSION_ELAPSED,   session->elapsed_seconds);
 
   app_message_outbox_send();
 }
@@ -265,7 +270,7 @@ static void start_tracking(void) {
     APP_LOG(APP_LOG_LEVEL_INFO, "Worker launch result: %d", (int)wr);
   }
 
-  text_layer_set_text(s_status_layer, "Tracking");
+  text_layer_set_text(s_status_layer, "TRACKING");
 #ifdef PBL_COLOR
   text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
 #endif
@@ -367,6 +372,12 @@ static void main_window_load(Window *window) {
   APP_LOG(APP_LOG_LEVEL_INFO, "main_window_load: start");
   Layer *root  = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
+
+  // set utilities variables
+  is_color = (bool) (PBL_IF_COLOR_ELSE(true, false));
+  is_large = (bool) (bounds.size.w >= 200);
+  is_round = (bool) (PBL_IF_ROUND_ELSE(true, false));
+
   // set background color
   window_set_background_color(window, GColorYellow);
 
@@ -384,64 +395,73 @@ static void main_window_load(Window *window) {
   // ---- Action bar (sidebar) ----
   s_action_bar = action_bar_layer_create();
   action_bar_layer_set_click_config_provider(s_action_bar, main_click_config);
-#ifdef PBL_COLOR
   action_bar_layer_set_background_color(s_action_bar, GColorBlack);
-#endif
   if (s_icon_settings) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP,     s_icon_settings);
   if (s_icon_play)     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
   if (s_icon_logs)     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN,   s_icon_logs);
   action_bar_layer_add_to_window(s_action_bar, window);
 
   // Content area width (screen minus action bar)
-  int cw = bounds.size.w - ACTION_BAR_WIDTH;
+  int cw_center = bounds.size.w - ACTION_BAR_WIDTH;
+  int cw = is_round ? bounds.size.w : cw_center;
+
+  GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+  if (is_large) {
+    title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+  }
 
   // ---- App title ----
-  s_title_layer = text_layer_create(GRect(0, 0, cw, 28));
+  s_title_layer = text_layer_create(GRect(0, is_round ? 20 : 0, cw, 28));
   text_layer_set_text(s_title_layer, "WALK LOG");
-  text_layer_set_font(s_title_layer,
-      fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
+  text_layer_set_font(s_title_layer, title_font);
   text_layer_set_text_alignment(s_title_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_title_layer, GColorClear);
-#ifdef PBL_COLOR
   text_layer_set_text_color(s_title_layer, GColorBlack);
-#endif
   layer_add_child(root, text_layer_get_layer(s_title_layer));
 
   // ---- Status label (Gothic) ----
-  s_status_layer = text_layer_create(GRect(0, 28, cw, 28));
+  s_status_layer = text_layer_create(GRect(0, bounds.size.h / 2 - 50, cw, 28));
   text_layer_set_text(s_status_layer, "READY");
   text_layer_set_font(s_status_layer,
       fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_status_layer, GColorClear);
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_status_layer, GColorDarkGray);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_status_layer, GColorDarkGray);
+  } else {
+    text_layer_set_text_color(s_status_layer, GColorBlack);
+  }
   layer_add_child(root, text_layer_get_layer(s_status_layer));
 
   // ---- Timer display (LECO) ----
-  bool large_screen = (bounds.size.w >= 200);
-  int timer_h = large_screen ? 56 : 50;
-  s_time_layer = text_layer_create(GRect(0, 58, cw, timer_h));
+  int timer_h = is_large ? 56 : 50;
+  s_time_layer = text_layer_create(GRect(0, (bounds.size.h / 2) - (timer_h /2), cw_center, timer_h));
   text_layer_set_text(s_time_layer, "00:00");
   text_layer_set_font(s_time_layer,
-      fonts_get_system_font(large_screen
+      fonts_get_system_font(is_large
           ? FONT_KEY_LECO_42_NUMBERS
           : FONT_KEY_LECO_36_BOLD_NUMBERS));
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_time_layer, GColorClear);
   layer_add_child(root, text_layer_get_layer(s_time_layer));
 
+  GFont steps_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  if (is_large) {
+    steps_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+  }
+
   // ---- Steps label (Gothic) ----
-  s_steps_layer = text_layer_create(GRect(0, 58 + timer_h + 4, cw, 28));
+  s_steps_layer = text_layer_create(GRect(0, bounds.size.h - 40, cw, 28));
   text_layer_set_text(s_steps_layer, "");
   text_layer_set_font(s_steps_layer,
-      fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+      steps_font);
   text_layer_set_text_alignment(s_steps_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_steps_layer, GColorClear);
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_steps_layer, GColorMidnightGreen);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_steps_layer, GColorCobaltBlue);
+  } else {
+    text_layer_set_text_color(s_steps_layer, GColorBlack);
+  }
   layer_add_child(root, text_layer_get_layer(s_steps_layer));
 
   // ---- Resume tracking state if we were tracking before app closed ----
@@ -452,9 +472,9 @@ static void main_window_load(Window *window) {
     app_timer_register(200, deferred_expire_cb, NULL);
   } else if (s_tracking) {
     text_layer_set_text(s_status_layer, "TRACKING");
-#ifdef PBL_COLOR
-    text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
-#endif
+    if (is_color) {
+      text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
+    }
     if (s_icon_stop) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
     update_time_display();
     update_steps_display();

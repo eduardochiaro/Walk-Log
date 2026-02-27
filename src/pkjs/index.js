@@ -8,15 +8,15 @@ Pebble.addEventListener('ready', function () {
 Pebble.addEventListener('appmessage', function (e) {
   console.log('Received message from watch');
 
-  var startTime = e.payload.SessionStartTime;
-  var deletePin = e.payload.DeletePinStartTime;
+  var startTime = e.payload.SESSION_START_TIME;
+  var deletePin = e.payload.DELETE_PIN_START_TIME;
 
   if (deletePin) {
     deleteTimelinePin(deletePin);
   } else if (startTime) {
-    var endTime   = e.payload.SessionEndTime;
-    var steps     = e.payload.SessionSteps;
-    var elapsed   = e.payload.SessionElapsed;
+    var endTime   = e.payload.SESSION_END_TIME;
+    var steps     = e.payload.SESSION_STEPS;
+    var elapsed   = e.payload.SESSION_ELAPSED;
     insertTimelinePin(startTime, endTime, steps, elapsed);
   }
 });
