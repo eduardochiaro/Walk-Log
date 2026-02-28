@@ -16,6 +16,7 @@ Walk Log is a Pebble application that tracks the time and steps taken during you
 ## Store
 
 [Rebble App Store](https://apps.rebble.io/en_US/application/)
+
 [Pebble App Store](https://apps.repebble.com/walk-log_)
 
 ## How to

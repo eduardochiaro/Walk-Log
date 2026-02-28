@@ -56,7 +56,13 @@ static void deferred_expire_cb(void *data);
 
 static int32_t get_step_count(void) {
 #if defined(PBL_HEALTH)
-  return (int32_t)health_service_sum_today(HealthMetricStepCount);
+  HealthServiceAccessibilityMask mask =
+      health_service_metric_accessible(HealthMetricStepCount,
+                                       time_start_of_today(), time(NULL));
+  if (mask & HealthServiceAccessibilityMaskAvailable) {
+    return (int32_t)health_service_sum_today(HealthMetricStepCount);
+  }
+  return 0;
 #else
   return 0;
 #endif
@@ -193,9 +199,9 @@ static void alert_load(Window *window) {
   Layer *root  = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
-#ifdef PBL_COLOR
-  window_set_background_color(window, GColorRed);
-#endif
+  if (is_color) {
+    window_set_background_color(window, GColorRed);
+  }
 
   s_alert_text = text_layer_create(
       GRect(10, 30, bounds.size.w - 20, bounds.size.h - 40));
@@ -210,9 +216,9 @@ static void alert_load(Window *window) {
       fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(s_alert_text, GTextAlignmentCenter);
   text_layer_set_background_color(s_alert_text, GColorClear);
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_alert_text, GColorWhite);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_alert_text, GColorWhite);
+  }
   layer_add_child(root, text_layer_get_layer(s_alert_text));
 
   s_alert_dismiss_timer = app_timer_register(3500, alert_dismiss, NULL);
@@ -271,9 +277,9 @@ static void start_tracking(void) {
   }
 
   text_layer_set_text(s_status_layer, "TRACKING");
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_status_layer, GColorIslamicGreen);
+  } 
 
   if (s_icon_stop) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop);
 
@@ -294,9 +300,9 @@ static void stop_tracking(bool expired) {
   }
 
   if (expired) {
-    // Worker (or fallback check) already saved the session.
-    // Read it back for timeline push.  Fill in step count since the
-    // worker can't access the Health API.
+    // Read expired session data and save to log + timeline.
+    // The worker only flags the expiry; the app handles session storage.
+    // The worker already subtracted inactivity time from end_time/elapsed_seconds.
     if (persist_exists(PERSIST_KEY_EXPIRED_SESSION)) {
       Session es;
       persist_read_data(PERSIST_KEY_EXPIRED_SESSION, &es, sizeof(Session));
@@ -304,6 +310,7 @@ static void stop_tracking(bool expired) {
         es.steps = get_step_count() - s_steps_at_start;
         if (es.steps < 0) es.steps = 0;
       }
+      session_add(&es);
       send_to_timeline(&es);
       persist_delete(PERSIST_KEY_EXPIRED_SESSION);
     }
@@ -323,9 +330,9 @@ static void stop_tracking(bool expired) {
 
   // Reset UI
   text_layer_set_text(s_status_layer, "Ready");
-#ifdef PBL_COLOR
-  text_layer_set_text_color(s_status_layer, GColorDarkGray);
-#endif
+  if (is_color) {
+    text_layer_set_text_color(s_status_layer, GColorDarkGray);
+  }
   if (s_icon_play) action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_play);
   s_elapsed_seconds = 0;
   update_time_display();
@@ -552,67 +559,72 @@ static void init(void) {
     }
   }
 
+  // Load active tracking state first (needed for steps even if worker expired)
+  ActiveTracking at;
+  bool had_active_tracking = active_tracking_load(&at);
+  if (had_active_tracking) {
+    s_start_time     = at.start_time;
+    s_steps_at_start = at.steps_at_start;
+  }
+
   // Check if the background worker expired the session while app was closed
   if (persist_exists(PERSIST_KEY_WORKER_EXPIRED)) {
     s_tracking = true;            // so stop_tracking(true) works in window_load
     s_expired_while_closed = true;
-  } else {
-    // Check if we were tracking (worker should still be running)
-    ActiveTracking at;
-    if (active_tracking_load(&at)) {
-      s_start_time      = at.start_time;
-      s_steps_at_start  = at.steps_at_start;
-      s_elapsed_seconds = (int)(time(NULL) - s_start_time);
-      if (s_elapsed_seconds < 0) s_elapsed_seconds = 0;
+  } else if (had_active_tracking) {
+    // We were tracking (worker should still be running)
+    s_elapsed_seconds = (int)(time(NULL) - at.start_time);
+    if (s_elapsed_seconds < 0) s_elapsed_seconds = 0;
 
-      // Fallback: if worker was killed, check for expiry
-      if (!app_worker_is_running() && s_settings.inactivity_timeout_minutes > 0) {
-        time_t  now           = time(NULL);
-        int32_t current_steps = get_step_count();
-        int32_t minutes_total = (int32_t)((now - at.start_time) / 60);
+    // Fallback: if worker was killed, check for expiry
+    if (!app_worker_is_running() && s_settings.inactivity_timeout_minutes > 0) {
+      time_t  now           = time(NULL);
+      int32_t current_steps = get_step_count();
+      int32_t minutes_total = (int32_t)((now - at.start_time) / 60);
 
-        // Use persisted slow_minutes plus a rough estimate for time since
-        // the worker last updated.
-        int32_t total_slow = at.slow_minutes;
-        if (minutes_total > 0 && at.last_checked_steps > 0) {
-          int32_t step_delta  = current_steps - at.last_checked_steps;
-          if (step_delta < 0) step_delta = 0;
-          int32_t mins_since  = minutes_total;  // rough upper bound
-          int32_t avg_pace    = (mins_since > 0) ? step_delta / mins_since : 0;
-          if (avg_pace < WALK_PACE_THRESHOLD) {
-            total_slow += mins_since;
-          }
+      // Use persisted slow_minutes plus a rough estimate for time since
+      // the worker last updated.
+      int32_t total_slow = at.slow_minutes;
+      if (minutes_total > 0 && at.last_checked_steps > 0) {
+        int32_t step_delta  = current_steps - at.last_checked_steps;
+        if (step_delta < 0) step_delta = 0;
+        int32_t mins_since  = minutes_total;  // rough upper bound
+        int32_t avg_pace    = (mins_since > 0) ? step_delta / mins_since : 0;
+        if (avg_pace < WALK_PACE_THRESHOLD) {
+          total_slow += mins_since;
         }
-
-        if (total_slow >= s_settings.inactivity_timeout_minutes) {
-          Session session = {
-            .start_time      = at.start_time,
-            .end_time        = now,
-            .steps           = current_steps - at.steps_at_start,
-            .elapsed_seconds = (int32_t)(now - at.start_time),
-          };
-          if (session.steps < 0) session.steps = 0;
-          session_add(&session);
-          persist_write_data(PERSIST_KEY_EXPIRED_SESSION, &session, sizeof(Session));
-          active_tracking_clear();
-
-          s_tracking = true;
-          s_expired_while_closed = true;
-        } else {
-          s_tracking = true;
-          // Re-launch worker (only if timeout enabled)
-          if (s_settings.inactivity_timeout_minutes > 0) {
-            ActiveTracking updated = at;
-            updated.last_checked_steps = current_steps;
-            active_tracking_save(&updated);
-            AppWorkerResult wr = app_worker_launch();
-            APP_LOG(APP_LOG_LEVEL_INFO, "Fallback worker launch: %d", (int)wr);
-          }
-        }
-      } else {
-        // Worker is still running, just resume UI
-        s_tracking = true;
       }
+
+      if (total_slow >= s_settings.inactivity_timeout_minutes) {
+        int32_t inactivity_secs = s_settings.inactivity_timeout_minutes * 60;
+        Session session = {
+          .start_time      = at.start_time,
+          .end_time        = now - (time_t)inactivity_secs,
+          .steps           = current_steps - at.steps_at_start,
+          .elapsed_seconds = (int32_t)(now - at.start_time) - inactivity_secs,
+        };
+        if (session.steps < 0) session.steps = 0;
+        if (session.elapsed_seconds < 0) session.elapsed_seconds = 0;
+        session_add(&session);
+        persist_write_data(PERSIST_KEY_EXPIRED_SESSION, &session, sizeof(Session));
+        active_tracking_clear();
+
+        s_tracking = true;
+        s_expired_while_closed = true;
+      } else {
+        s_tracking = true;
+        // Re-launch worker (only if timeout enabled)
+        if (s_settings.inactivity_timeout_minutes > 0) {
+          ActiveTracking updated = at;
+          updated.last_checked_steps = current_steps;
+          active_tracking_save(&updated);
+          AppWorkerResult wr = app_worker_launch();
+          APP_LOG(APP_LOG_LEVEL_INFO, "Fallback worker launch: %d", (int)wr);
+        }
+      }
+    } else {
+      // Worker is still running (or timeout disabled), just resume UI
+      s_tracking = true;
     }
   }
 
