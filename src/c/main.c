@@ -13,6 +13,7 @@ static TextLayer      *s_title_layer;
 static TextLayer      *s_status_layer;
 static TextLayer      *s_time_layer;
 static TextLayer      *s_steps_layer;
+static Layer          *s_background_layer;
 
 // Expire-alert window
 static Window    *s_alert_window;
@@ -44,28 +45,38 @@ static Settings s_settings;
 bool is_color = false;
 bool is_large = false;
 bool is_round = false;
+bool has_health = false;
 
 // ---- forward declarations ----
 static void stop_tracking(bool expired);
 static void update_app_glance(void);
 static void deferred_expire_cb(void *data);
 
+
+// Animation
+static Animation *s_appear_anim = NULL;
+
+static void anim_stopped_handler(Animation *animation, bool finished, void *context) {
+  s_appear_anim = NULL;
+}
+
+
 // ============================================================================
 //  Health helper
 // ============================================================================
 
 static int32_t get_step_count(void) {
-#if defined(PBL_HEALTH)
-  HealthServiceAccessibilityMask mask =
-      health_service_metric_accessible(HealthMetricStepCount,
-                                       time_start_of_today(), time(NULL));
-  if (mask & HealthServiceAccessibilityMaskAvailable) {
-    return (int32_t)health_service_sum_today(HealthMetricStepCount);
+  if (has_health) {
+    HealthServiceAccessibilityMask mask =
+        health_service_metric_accessible(HealthMetricStepCount,
+                                        time_start_of_today(), time(NULL));
+    if (mask & HealthServiceAccessibilityMaskAvailable) {
+      return (int32_t)health_service_sum_today(HealthMetricStepCount);
+    }
+    return 0;
+  } else {
+    return 0;
   }
-  return 0;
-#else
-  return 0;
-#endif
 }
 
 // ============================================================================
@@ -83,14 +94,16 @@ static void update_time_display(void) {
 }
 
 static void update_steps_display(void) {
-  if (!s_tracking) {
-    text_layer_set_text(s_steps_layer, "");
-    return;
+  if (has_health) {
+    if (!s_tracking) {
+      text_layer_set_text(s_steps_layer, "");
+      return;
+    }
+    int32_t session_steps = get_step_count() - s_steps_at_start;
+    if (session_steps < 0) session_steps = 0;
+    snprintf(s_steps_buf, sizeof(s_steps_buf), "steps: %ld", (long)session_steps);
+    text_layer_set_text(s_steps_layer, s_steps_buf);
   }
-  int32_t session_steps = get_step_count() - s_steps_at_start;
-  if (session_steps < 0) session_steps = 0;
-  snprintf(s_steps_buf, sizeof(s_steps_buf), "steps: %ld", (long)session_steps);
-  text_layer_set_text(s_steps_layer, s_steps_buf);
 }
 
 // ============================================================================
@@ -195,16 +208,24 @@ static void alert_dismiss(void *data) {
   if (s_alert_window) window_stack_remove(s_alert_window, false);
 }
 
+
+static void background_update_proc(Layer *layer, GContext *ctx) {
+  graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorRed, GColorWhite));
+  graphics_fill_rect(ctx, layer_get_bounds(layer), 0, 0);
+}
+
 static void alert_load(Window *window) {
   Layer *root  = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
-  if (is_color) {
-    window_set_background_color(window, GColorRed);
-  }
+  const GEdgeInsets background_insets = {.top = bounds.size.h  /* Start hidden */};
+  s_background_layer = layer_create(grect_inset(bounds, background_insets));
+  layer_set_update_proc(s_background_layer, background_update_proc);
+  layer_add_child(root, s_background_layer);
+
 
   s_alert_text = text_layer_create(
-      GRect(10, 30, bounds.size.w - 20, bounds.size.h - 40));
+      GRect(10, bounds.size.h + 30, bounds.size.w - 20, bounds.size.h - 40));
   {
     static char alert_msg[64];
     snprintf(alert_msg, sizeof(alert_msg),
@@ -212,8 +233,7 @@ static void alert_load(Window *window) {
              (long)s_settings.inactivity_timeout_minutes);
     text_layer_set_text(s_alert_text, alert_msg);
   }
-  text_layer_set_font(s_alert_text,
-      fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_alert_text, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(s_alert_text, GTextAlignmentCenter);
   text_layer_set_background_color(s_alert_text, GColorClear);
   if (is_color) {
@@ -221,14 +241,45 @@ static void alert_load(Window *window) {
   }
   layer_add_child(root, text_layer_get_layer(s_alert_text));
 
-  s_alert_dismiss_timer = app_timer_register(3500, alert_dismiss, NULL);
+  s_alert_dismiss_timer = app_timer_register(5500, alert_dismiss, NULL);
 }
 
 static void alert_unload(Window *window) {
   if (s_alert_text) text_layer_destroy(s_alert_text);
   s_alert_text = NULL;
   s_alert_window = NULL;
+  if (s_background_layer) layer_destroy(s_background_layer);
+  s_background_layer = NULL;
   window_destroy(window);
+}
+
+static void alert_appear(Window *window) {
+  if(s_appear_anim) {
+     // In progress, cancel
+    animation_unschedule(s_appear_anim);
+  }
+
+  GRect bounds = layer_get_bounds(window_get_root_layer(window));
+  Layer *label_layer = text_layer_get_layer(s_alert_text);
+
+  GRect start = layer_get_frame(s_background_layer);
+  GRect finish = bounds;
+  Animation *background_anim = (Animation*)property_animation_create_layer_frame(s_background_layer, &start, &finish);
+
+  start = layer_get_frame(label_layer);
+  const GEdgeInsets finish_insets = {
+    .top = 10,
+    .right = 30, .left = 30};
+  finish = grect_inset(bounds, finish_insets);
+  Animation *label_anim = (Animation*)property_animation_create_layer_frame(label_layer, &start, &finish);
+
+
+  s_appear_anim = animation_spawn_create(background_anim, label_anim, NULL);
+  animation_set_handlers(s_appear_anim, (AnimationHandlers) {
+    .stopped = anim_stopped_handler
+  }, NULL);
+  animation_set_delay(s_appear_anim, 700);
+  animation_schedule(s_appear_anim);
 }
 
 static void show_expire_alert(void) {
@@ -237,6 +288,7 @@ static void show_expire_alert(void) {
   window_set_window_handlers(s_alert_window, (WindowHandlers) {
     .load   = alert_load,
     .unload = alert_unload,
+    .appear = alert_appear
   });
   window_stack_push(s_alert_window, true);
   vibes_long_pulse();
@@ -381,9 +433,7 @@ static void main_window_load(Window *window) {
   GRect bounds = layer_get_bounds(root);
 
   // set utilities variables
-  is_color = (bool) (PBL_IF_COLOR_ELSE(true, false));
   is_large = (bool) (bounds.size.w >= 200);
-  is_round = (bool) (PBL_IF_ROUND_ELSE(true, false));
 
   // set background color
   window_set_background_color(window, GColorYellow);
@@ -534,6 +584,12 @@ static void init(void) {
   settings_load(&s_settings);
   APP_LOG(APP_LOG_LEVEL_INFO, "init: settings loaded, timeout=%ld",
           (long)s_settings.inactivity_timeout_minutes);
+
+  // set utilities variables that might be needed by window_load before main_window_load runs
+
+  is_round = (bool) (PBL_IF_ROUND_ELSE(true, false));
+  has_health = (bool) (PBL_IF_HEALTH_ELSE(true, false));
+  is_color = (bool) (PBL_IF_COLOR_ELSE(true, false));
 
   app_message_register_outbox_sent(outbox_sent);
   app_message_register_outbox_failed(outbox_failed);

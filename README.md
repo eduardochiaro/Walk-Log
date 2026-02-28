@@ -4,6 +4,7 @@ A simple application to keep track of your walks.
 
 ## Description
 Walk Log is a Pebble application that tracks the time and steps taken during your walks. Your walk history is stored in the logs view, where you can review past activities and delete entries as needed. You can also send walks to the timeline to view them in the Pebble watch's Past Timeline view.
+Set it and for get it: an inactivity option will automatically stop your walk after a set period of inactivity, thanks to a background worker.
 
 
 ## Screenshots

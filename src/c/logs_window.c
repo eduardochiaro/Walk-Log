@@ -180,9 +180,11 @@ static void detail_load(Window *window) {
   window_set_background_color(window, GColorYellow);
   bool is_round = (bool) PBL_IF_ROUND_ELSE(true, false);
   bool is_color = (bool) PBL_IF_COLOR_ELSE(true, false);
+  bool has_health = (bool) PBL_IF_HEALTH_ELSE(true, false);
 
   Session session;
   load_by_display_index(s_detail_index, &session);
+
 
   // Format strings
   
@@ -197,7 +199,9 @@ static void detail_load(Window *window) {
   format_elapsed(session.elapsed_seconds, human, sizeof(human));
   snprintf(s_det_elapsed_buf, sizeof(s_det_elapsed_buf), "Time:  %s", human);
 
-  snprintf(s_det_steps_buf, sizeof(s_det_steps_buf), "Steps: %ld", (long)session.steps);
+  if (has_health) {
+    snprintf(s_det_steps_buf, sizeof(s_det_steps_buf), "Steps: %ld", (long)session.steps);
+  } 
 
   // Status bar
   s_detail_status_bar = status_bar_layer_create();
@@ -331,6 +335,8 @@ static void list_draw_row(GContext *gctx, const Layer *cell_layer,
     return;
   }
 
+  bool has_health = (bool) PBL_IF_HEALTH_ELSE(true, false);
+
   Session session;
   if (load_by_display_index(cell_index->row, &session)) {
     struct tm *t = localtime(&session.start_time);
@@ -338,8 +344,12 @@ static void list_draw_row(GContext *gctx, const Layer *cell_layer,
 
     char elapsed[16];
     format_elapsed(session.elapsed_seconds, elapsed, sizeof(elapsed));
-    snprintf(s_row_sub_buf, sizeof(s_row_sub_buf), "%s - %ld steps",
-             elapsed, (long)session.steps);
+    if (has_health) {
+      snprintf(s_row_sub_buf, sizeof(s_row_sub_buf), "%s - %ld steps",
+               elapsed, (long)session.steps);
+    } else {
+      snprintf(s_row_sub_buf, sizeof(s_row_sub_buf), "%s", elapsed);
+    }
 
     menu_cell_basic_draw(gctx, cell_layer, s_row_title_buf, s_row_sub_buf, NULL);
   } else {
