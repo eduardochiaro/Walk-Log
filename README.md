@@ -9,10 +9,22 @@ Set it and for get it: an inactivity option will automatically stop your walk af
 
 ## Screenshots
 ### Pebble Time/Time Steel
-![Basalt 1](assets/walk-log-basalt-1.png)
-![Basalt 2](assets/walk-log-basalt-2.png)
-![Basalt 3](assets/walk-log-basalt-3.png)
-![Basalt 4](assets/walk-log-basalt-4.png)
+![Basalt 1](assets/basalt_1.png)
+![Basalt 2](assets/basalt_2.png)
+![Basalt 3](assets/basalt_3.png)
+![Basalt 4](assets/basalt_4.png)
+
+### Pebble Original/Steel
+![Aplite 1](assets/aplite_-_1.png)
+
+### Pebble Pebble 2/Duo
+![Diorite 1](assets/diorite_1.png)
+
+### Pebble Time Round
+![Chalk 1](assets/chalk_1.png)
+
+### Pebble Time 2
+![Emery 1](assets/emery_1.png)
 
 ## Store
 
