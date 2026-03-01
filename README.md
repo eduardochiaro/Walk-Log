@@ -28,9 +28,9 @@ Set it and for get it: an inactivity option will automatically stop your walk af
 
 ## Store
 
-[Rebble App Store](https://apps.rebble.io/en_US/application/)
+[Rebble App Store](https://apps.rebble.io/en_US/application/69a412a94c5ae70009a92597)
 
-[Pebble App Store](https://apps.repebble.com/walk-log_)
+[Pebble App Store](https://apps.repebble.com/69a412a94c5ae70009a92597)
 
 ## How to
 
