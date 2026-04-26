@@ -1,7 +1,7 @@
 {
   "name": "walk-log",
   "author": "Eduardo Chiaro",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "keywords": [
     "pebble-app",
     "health",
@@ -15,6 +15,14 @@
   "dependencies": {
     "pebble-timeline-js": "^2.2.0"
   },
+  "scripts": {
+    "build": "pebble build",
+    "clean": "pebble clean",
+    "emulator": "npm run clean && npm run build && pebble install --emulator ",
+    "phone": "npm run clean && npm run build && pebble install --phone",
+    "config": "pebble emu-app-config --emulator",
+    "logs": "pebble logs"
+  },
   "pebble": {
     "displayName": "Walk Log",
     "uuid": "c013951f-72e4-453a-be4f-1fbee9014b0f",
@@ -26,7 +34,8 @@
       "chalk",
       "diorite",
       "emery",
-      "flint"
+      "flint",
+      "gabbro"
     ],
     "watchapp": {
       "watchface": false

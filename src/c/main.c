@@ -477,7 +477,8 @@ static void main_window_load(Window *window) {
   layer_add_child(root, text_layer_get_layer(s_title_layer));
 
   // ---- Status label (Gothic) ----
-  s_status_layer = text_layer_create(GRect(0, bounds.size.h / 2 - 50, cw, 28));
+  int ready_h = is_large ? 56 : 50;
+  s_status_layer = text_layer_create(GRect(0, bounds.size.h / 2 - ready_h, cw, 28));
   text_layer_set_text(s_status_layer, "READY");
   text_layer_set_font(s_status_layer,
       fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
@@ -492,13 +493,21 @@ static void main_window_load(Window *window) {
 
   // ---- Timer display (LECO) ----
   int timer_h = is_large ? 56 : 50;
-  s_time_layer = text_layer_create(GRect(0, (bounds.size.h / 2) - (timer_h /2), cw_center, timer_h));
-  text_layer_set_text(s_time_layer, "00:00");
-  text_layer_set_font(s_time_layer,
-      fonts_get_system_font(is_large
-          ? FONT_KEY_LECO_42_NUMBERS
-          : FONT_KEY_LECO_36_BOLD_NUMBERS));
-  text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
+
+  #if defined(PBL_PLATFORM_GABBRO)
+    s_time_layer = text_layer_create(GRect(0, (bounds.size.h / 2) - (62 /2) - 10, cw_center, 62));
+    text_layer_set_text(s_time_layer, "00:00");
+    text_layer_set_font(s_time_layer, fonts_get_system_font(FONT_KEY_LECO_60_NUMBERS_AM_PM));
+    text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
+  #else 
+    s_time_layer = text_layer_create(GRect(0, (bounds.size.h / 2) - (timer_h /2), cw_center, timer_h));
+    text_layer_set_text(s_time_layer, "00:00");
+    text_layer_set_font(s_time_layer,
+        fonts_get_system_font(is_large
+            ? FONT_KEY_LECO_42_NUMBERS
+            : FONT_KEY_LECO_36_BOLD_NUMBERS));
+    text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
+  #endif
   text_layer_set_background_color(s_time_layer, GColorClear);
   layer_add_child(root, text_layer_get_layer(s_time_layer));
 
@@ -508,7 +517,8 @@ static void main_window_load(Window *window) {
   }
 
   // ---- Steps label (Gothic) ----
-  s_steps_layer = text_layer_create(GRect(0, bounds.size.h - 40, cw, 28));
+  int steps_h = is_large ? 75 : 40;
+  s_steps_layer = text_layer_create(GRect(0, bounds.size.h - steps_h, cw, 28));
   text_layer_set_text(s_steps_layer, "");
   text_layer_set_font(s_steps_layer,
       steps_font);
