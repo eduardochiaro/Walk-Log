@@ -413,7 +413,7 @@ static void list_load(Window *window) {
     .draw_row          = list_draw_row,
     .select_click      = list_select_cb,
     .select_long_click = list_select_long_cb,
-  });
+  });                                                                        
   menu_layer_set_click_config_onto_window(s_list_menu, window);
   menu_layer_set_normal_colors(s_list_menu, GColorYellow, GColorBlack);
   menu_layer_set_highlight_colors(s_list_menu, GColorBlack, GColorWhite);

@@ -67,9 +67,7 @@ static void anim_stopped_handler(Animation *animation, bool finished, void *cont
 
 static int32_t get_step_count(void) {
   if (has_health) {
-    HealthServiceAccessibilityMask mask =
-        health_service_metric_accessible(HealthMetricStepCount,
-                                        time_start_of_today(), time(NULL));
+    HealthServiceAccessibilityMask mask = health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), time(NULL));
     if (mask & HealthServiceAccessibilityMaskAvailable) {
       return (int32_t)health_service_sum_today(HealthMetricStepCount);
     }
@@ -112,8 +110,7 @@ static void update_steps_display(void) {
 
 #if !defined(PBL_PLATFORM_APLITE)
 
-static void app_glance_reload_cb(AppGlanceReloadSession *session,
-                                  size_t limit, void *ctx) {
+static void app_glance_reload_cb(AppGlanceReloadSession *session, size_t limit, void *ctx) {
   if (limit < 1) return;
 
   const AppGlanceSlice slice = (AppGlanceSlice) {
@@ -505,7 +502,7 @@ static void main_window_load(Window *window) {
     text_layer_set_font(s_time_layer,
         fonts_get_system_font(is_large
             ? FONT_KEY_LECO_42_NUMBERS
-            : FONT_KEY_LECO_36_BOLD_NUMBERS));
+            : FONT_KEY_LECO_32_BOLD_NUMBERS));
     text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   #endif
   text_layer_set_background_color(s_time_layer, GColorClear);
