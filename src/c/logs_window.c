@@ -325,7 +325,20 @@ static int16_t list_get_header_height(MenuLayer *menu, uint16_t section, void *c
 
 static void list_draw_header(GContext *gctx, const Layer *cell_layer,
                               uint16_t section, void *ctx) {
-  menu_cell_basic_header_draw(gctx, cell_layer, "Walk Logs");
+
+  (void)section; (void)ctx;
+
+  GRect bounds = layer_get_bounds(cell_layer);
+  graphics_context_set_text_color(gctx, GColorBlack);
+  graphics_draw_text(
+    gctx,
+    "Logs",
+    fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+    bounds,
+    GTextOverflowModeTrailingEllipsis,
+    PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft),
+    NULL
+  );
 }
 
 static void list_draw_row(GContext *gctx, const Layer *cell_layer,

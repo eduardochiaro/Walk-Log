@@ -60,7 +60,19 @@ static int16_t get_header_height_cb(MenuLayer *menu, uint16_t section, void *ctx
 
 static void draw_header_cb(GContext *gctx, const Layer *cell_layer,
                             uint16_t section, void *ctx) {
-  menu_cell_basic_header_draw(gctx, cell_layer, "Settings");
+  (void)section; (void)ctx;
+
+  GRect bounds = layer_get_bounds(cell_layer);
+  graphics_context_set_text_color(gctx, GColorBlack);
+  graphics_draw_text(
+    gctx,
+    "Settings",
+    fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+    bounds,
+    GTextOverflowModeTrailingEllipsis,
+    PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft),
+    NULL
+  );
 }
 
 static void draw_row_cb(GContext *gctx, const Layer *cell_layer,
